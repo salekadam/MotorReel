@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MotorReel - Vehicle Tracker</title>
+
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"/>
+<link href="https://fonts.googleapis.com/css?family=Poppins:400,600,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css"/>
+
+<style>
+body { font-family: 'Poppins', sans-serif; background:#111; color:#eee; margin:0; overflow:hidden; }
+.header_section { background: linear-gradient(45deg, #111827 50%, #33c2ff 50%); }
+.navbar-brand span { color:#fff; font-weight:700; font-size:24px; }
+.navbar-nav .nav-link { color:#fff !important; margin-right:15px; font-weight:500; }
+.navbar-nav .nav-link:hover { color:#ffe !important; }
+
+.container-flex { display:flex; height: calc(100vh - 70px); }
+.sidebar {
+  width: 320px; padding: 18px; background: #111827; color: #E5E7EB;
+  box-shadow: 2px 0 12px rgba(0,0,0,0.25); display:flex; flex-direction:column; gap:15px;
+}
+.sidebar h2 { font-size: 20px; margin-bottom:10px; color:#ffff; text-align:center; }
+.sidebar label { font-size: 12px; color: #9CA3AF; }
+.sidebar input { padding:10px; border-radius:10px; border:1px solid #374151; background:#0B1220; color:#F3F4F6; outline:none; }
+.sidebar input::placeholder { color: #6B7280; }
+.sidebar button { margin-top:6px; padding:10px 12px; border:0; border-radius:10px; background: linear-gradient(135deg, #2563EB, #10B981); color:white; cursor:pointer; font-weight:600; }
+.sidebar button:hover { filter: brightness(1.05); }
+
+#map { flex:1; height:100%; }
+.leaflet-routing-container { display:none !important; }
+.leaflet-tile { filter: saturate(1.1) hue-rotate(180deg) brightness(0.95); }
+.leaflet-marker-icon { will-change: transform; }
+
+@media(max-width:900px){
+  .container-flex { flex-direction:column; height:auto; }
+  .sidebar { width:100%; max-height:400px; }
+  #map { height:400px; margin-top:15px; border-radius:12px; }
+}
+</style>
+</head>
+<body>
+
+<header class="header_section">
+   <div class="container-fluid">
+      <nav class="navbar navbar-expand-lg navbar-dark">
+        <a class="navbar-brand" href="index.html">
+          <span>MotorReel</span>
+        </a>
+
+        <!-- Navbar links always visible -->
+        <div class="navbar-collapse show">
+          <ul class="navbar-nav mr-auto">
+            <li class="nav-item active">
+              <a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="Tracking.html">Tracking</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="Support Emergency.html">Support/Emergency</a>
+            </li>
+          </ul>
+          <ul class="navbar-nav ml-auto">
+            <li class="nav-item">
+              <a class="nav-link" href="Login.html">Sign In</a>
+            </li>
+          </ul>
+        </div>
+      </nav>
+    </div>
+</header>
+
+<div class="container-flex">
+  <aside class="sidebar">
+    <label for="vehicleName">Vehicle Name</label>
+    <input id="vehicleName" type="text" placeholder="e.g., Toyota Hilux"/>
+    <label for="plateNumber">Plate Number</label>
+    <input id="plateNumber" type="text" placeholder="e.g., ABC 1234"/>
+    <label for="origin">Current Address</label>
+    <input id="origin" type="text" placeholder="e.g., Cape Town, South Africa"/>
+    <label for="destination">Destination</label>
+    <input id="destination" type="text" placeholder="e.g., Johannesburg, South Africa"/>
+    <button id="startBtn">Start Route</button>
+  </aside>
+
+  <div id="map"></div>
+</div>
+
+<!-- Hidden Car SVG -->
+<div id="car-svg" style="display:none;">
+<svg width="56" height="56" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <g fill="none">
+    <rect x="14" y="8" width="36" height="38" rx="10" fill="#00E0A6"/>
+    <rect x="18" y="12" width="28" height="16" rx="4" fill="#0B1220"/>
+    <circle cx="22" cy="48" r="5" fill="#0B1220"/>
+    <circle cx="42" cy="48" r="5" fill="#0B1220"/>
+  </g>
+</svg>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
+
+<script>
+// --- Map & Vehicle Tracker ---
+const map = L.map('map', { zoomControl:true }).setView([-26.2041,28.0473],6);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+  attribution:'&copy; OpenStreetMap &copy; CARTO', subdomains:'abcd', maxZoom:20
+}).addTo(map);
+
+let routingControl=null, vehicleMarker=null, destinationMarker=null, animTimer=null, polyline=null;
+const carIcon=L.icon({ iconUrl:'car.svg', iconSize:[48,48], iconAnchor:[24,36] });
+
+async function geocode(q){ const res=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`); const data=await res.json(); if(!data||!data.length) return null; return L.latLng(parseFloat(data[0].lat),parseFloat(data[0].lon)); }
+function bearing(a,b){ const toRad=d=>d*Math.PI/180; const toDeg=r=>r*180/Math.PI; const φ1=toRad(a.lat), φ2=toRad(b.lat); const λ1=toRad(a.lng), λ2=toRad(b.lng); const y=Math.sin(λ2-λ1)*Math.cos(φ2); const x=Math.cos(φ1)*Math.cos(φ2)*Math.cos(λ2-λ1)+Math.sin(φ1)*Math.sin(φ2); return (toDeg(Math.atan2(y,x))+360)%360; }
+function clearPrevious(){ if(routingControl){ map.removeControl(routingControl); routingControl=null; } if(vehicleMarker){ map.removeLayer(vehicleMarker); vehicleMarker=null; } if(destinationMarker){ map.removeLayer(destinationMarker); destinationMarker=null; } if(polyline){ map.removeLayer(polyline); polyline=null; } if(animTimer){ cancelAnimationFrame(animTimer); animTimer=null; } }
+
+document.getElementById('startBtn').addEventListener('click', async ()=>{
+  const originText=document.getElementById('origin').value.trim();
+  const destText=document.getElementById('destination').value.trim();
+  const vehicleName=document.getElementById('vehicleName').value.trim();
+  const plateNumber=document.getElementById('plateNumber').value.trim();
+  if(!originText||!destText){ alert('Please enter both addresses.'); return; }
+  clearPrevious();
+  const start=await geocode(originText);
+  const end=await geocode(destText);
+  if(!start||!end){ alert('Could not find one of the addresses.'); return; }
+  destinationMarker=L.marker(end).addTo(map).bindPopup('Destination');
+  routingControl=L.Routing.control({
+    waypoints:[start,end],
+    router:L.Routing.osrmv1({ serviceUrl:'https://router.project-osrm.org/route/v1' }),
+    routeWhileDragging:false, addWaypoints:false, show:false, draggableWaypoints:false, fitSelectedRoutes:false,
+    createMarker:()=>null
+  }).on('routesfound',(e)=>{
+    const route=e.routes[0], coords=route.coordinates;
+    if(!coords||coords.length<2){ alert('No route found'); return; }
+    polyline=L.polyline(coords,{color:'#3B82F6',weight:5,opacity:0.9}).addTo(map);
+    map.fitBounds(polyline.getBounds(),{padding:[50,50]});
+    vehicleMarker=L.marker(coords[0],{icon:carIcon, rotationAngle:0, rotationOrigin:'24px 36px'}).addTo(map).bindPopup(`<b>${vehicleName||'Vehicle'}</b><br/>Plate: ${plateNumber||'N/A'}`);
+    const speedMps=16; let idx=0, lastTime=null, segDist=0;
+    function stepAnim(ts){
+      if(!lastTime) lastTime=ts; const dt=(ts-lastTime)/1000; lastTime=ts; let remaining=speedMps*dt;
+      while(remaining>0 && idx<coords.length-1){
+        const a=coords[idx], b=coords[idx+1], dist=a.distanceTo(b);
+        if(segDist===0) segDist=dist;
+        if(remaining<segDist){ const t=remaining/segDist; const lat=a.lat+(b.lat-a.lat)*t; const lng=a.lng+(b.lng-a.lng)*t;
+          vehicleMarker.setRotationAngle(bearing(a,b)); vehicleMarker.setLatLng([lat,lng]); segDist-=remaining; remaining=0;
+        } else { remaining-=segDist; idx++; segDist=0; vehicleMarker.setLatLng(coords[idx]); if(idx<coords.length-1) vehicleMarker.setRotationAngle(bearing(coords[idx],coords[idx+1])); }
+      }
+      if(idx<coords.length-1) animTimer=requestAnimationFrame(stepAnim);
+      else { vehicleMarker.setLatLng(coords[coords.length-1]); vehicleMarker.setRotationAngle(0); }
+    }
+    animTimer=requestAnimationFrame(stepAnim);
+  }).addTo(map);
+});
+
+// Rotated Marker plugin
+(function(){ var oldSetPos=L.Marker.prototype._setPos; L.Marker.addInitHook(function(){ var iconOptions=this.options.icon&&this.options.icon.options; var iconAnchor=iconOptions&&this.options.icon.options.iconAnchor; if(iconAnchor) iconAnchor=(iconAnchor[0]+'px '+iconAnchor[1]+'px'); this.options.rotationOrigin=this.options.rotationOrigin||iconAnchor||'center bottom'; this.options.rotationAngle=this.options.rotationAngle||0; this.on('drag', function(e){ e.target._applyRotation(); }); }); L.Marker.include({ _applyRotation:function(){ if(this.options.rotationAngle){ this._icon.style[L.DomUtil.TRANSFORM+'Origin']=this.options.rotationOrigin; this._icon.style[L.DomUtil.TRANSFORM]+=' rotate('+this.options.rotationAngle+'deg)'; } }, setRotationAngle:function(angle){ this.options.rotationAngle=angle; if(this._map)this._applyRotation(); return this; }, setRotationOrigin:function(origin){ this.options.rotationOrigin=origin; this._applyRotation(); return this; }, _setPos:function(pos){ oldSetPos.call(this,pos); this._applyRotation(); } }); })();
+</script>
+</body>
+</html>
