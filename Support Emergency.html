@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MotorReel - Support & Emergency</title>
+
+  <!-- Bootstrap & Fonts -->
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"/>
+  <link href="https://fonts.googleapis.com/css?family=Poppins:400,600,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+  <style>
+    body { font-family: 'Poppins', sans-serif; background:#111; color:#eee; overflow-x:hidden; }
+    .header_section { background: linear-gradient(45deg, #111827 50%, #33c2ff 50%); }
+    .navbar-brand span { color:#fff; font-weight:700; font-size:24px; }
+    .navbar-nav .nav-link { color:#fff !important; margin-right:15px; font-weight:500; }
+    .navbar-nav .nav-link:hover { color:#ffe !important; }
+    a { color: #fff; text-decoration: none; background-color: transparent; }
+    .btn-light { color: #212529; }
+    .main-area { padding:0; }
+    .full-height { height: calc(100vh - 70px); }
+
+    .control-card {
+      background:#111827;
+      border-radius:16px;
+      box-shadow:0 6px 18px rgba(0,0,0,0.5);
+      padding:20px;
+      height:100%;
+      display:flex;
+      flex-direction:column;
+    }
+    .control-card h3 {
+      font-size:18px;
+      font-weight:600;
+      background:linear-gradient(90deg,#111827);
+      color:#fff;
+      padding:10px 15px;
+      border-radius:12px;
+      margin:-20px -20px 20px -20px;
+    }
+
+    .message-box { flex:1; overflow-y:auto; max-height:calc(100% - 140px); }
+    .message {
+      background:#2a2a2a;
+      padding:12px 15px;
+      border-radius:10px;
+      margin-bottom:12px;
+      cursor:pointer;
+      transition:0.3s;
+    }
+    .message:hover { background:#333; }
+    .message strong { display:block; color:#33c2ff ;}
+    .message small { color:#aaa; }
+
+    #map { width:100%; height:100%; }
+
+    .alert {
+      border-radius:10px;
+      font-weight:500;
+      background:#2a2a2a;
+      color:#fff;
+      border:none;
+    }
+
+    @media(max-width: 768px) {
+      .full-height { height:auto; }
+      .control-card { margin-bottom:20px; }
+      #map { height:400px; border-radius:16px; }
+      .navbar-nav { background:#111; padding:10px; border-radius:10px; margin-top:10px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header_section">
+    <div class="container-fluid">
+      <nav class="navbar navbar-expand-lg navbar-dark">
+        <a class="navbar-brand" href="index.html">
+          <span>MotorReel</span>
+        </a>
+
+        <!-- Navbar links always visible -->
+        <div class="navbar-collapse show">
+          <ul class="navbar-nav mr-auto">
+            <li class="nav-item active">
+              <a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="Tracking.html">Tracking</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="Support Emergency.html">Support/Emergency</a>
+            </li>
+          </ul>
+          <ul class="navbar-nav ml-auto">
+            <li class="nav-item">
+              <a class="nav-link" href="Login.html">Sign In</a>
+            </li>
+          </ul>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <div class="container-fluid main-area">
+    <div class="row no-gutters">
+      <!-- Left: Control Card -->
+      <div class="col-md-3 full-height">
+        <div class="control-card">
+          <h3><i class="fas fa-ambulance mr-2"></i>Incoming Reports</h3>
+          <div id="messages" class="message-box"></div>
+          <div class="alert mt-3" id="statusText">Waiting for reports...</div>
+          <div class="mt-3" id="replySection" style="display:none;">
+            <textarea id="replyMessage" class="form-control mb-2" rows="2" placeholder="Type your message here..."></textarea>
+            <button id="sendReply" class="btn btn-sm btn-primary btn-block">Send Message</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Map -->
+      <div class="col-md-9 full-height">
+        <div id="map"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden Car SVG -->
+  <div id="car-svg" style="display:none;">
+    <svg width="56" height="56" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <g fill="none">
+        <rect x="14" y="8" width="36" height="38" rx="10" fill="#00E0A6"/>
+        <rect x="18" y="12" width="28" height="16" rx="4" fill="#0B1220"/>
+        <circle cx="22" cy="48" r="5" fill="#0B1220"/>
+        <circle cx="42" cy="48" r="5" fill="#0B1220"/>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Leaflet & JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    const map = L.map('map').setView([0, 20], 3);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+      subdomains: 'abcd',
+      maxZoom: 20
+    }).addTo(map);
+
+    let carMarker = null, searchCircle = null, currentReport = null;
+
+    function createCarIcon(size){
+      const svg = document.getElementById('car-svg').innerHTML;
+      const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      return L.icon({iconUrl:url, iconSize:size||[48,48], iconAnchor:[24,24]});
+    }
+
+    async function geocode(query){
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+      const res = await fetch(url,{headers:{'Accept':'application/json'}});
+      const data = await res.json();
+      if(data.length>0) return [parseFloat(data[0].lat),parseFloat(data[0].lon)];
+      else throw new Error("Location not found: "+query);
+    }
+
+    const sampleReports = [
+      { name:"Kenya Transport", text:"Truck was hijacked en route to Nairobi.", location:"Nairobi, Kenya" },
+      { name:"Cape Town Couriers", text:"Delivery van stolen near city center.", location:"Cape Town, South Africa" },
+      { name:"Lagos Logistics", text:"Company car missing from warehouse.", location:"Lagos, Nigeria" },
+      { name:"Accra Shuttle", text:"Shuttle vehicle hijacked during route.", location:"Accra, Ghana" },
+      { name:"Addis Express", text:"Van carrying cargo stolen.", location:"Addis Ababa, Ethiopia" },
+      { name:"Dakar Transport", text:"Truck went missing overnight.", location:"Dakar, Senegal" },
+      { name:"Cairo Movers", text:"Company vehicle stolen near office.", location:"Cairo, Egypt" },
+      { name:"Kampala Express", text:"Delivery van hijacked en route.", location:"Kampala, Uganda" }
+    ];
+
+    function addMessage(report){
+      const msg = document.createElement('div');
+      msg.className = "message";
+      msg.innerHTML = `<strong>${report.name}</strong>${report.text}<br><small>Last seen: ${report.location}</small>`;
+      msg.addEventListener('click', async ()=> {
+        currentReport = report;
+        document.getElementById('statusText').innerText="Locating vehicle...";
+        document.getElementById('replySection').style.display="block";
+
+        try {
+          const coords = await geocode(report.location);
+          if(carMarker) map.removeLayer(carMarker);
+          if(searchCircle) map.removeLayer(searchCircle);
+
+          carMarker = L.marker(coords,{icon:createCarIcon([48,48])}).addTo(map);
+          searchCircle = L.circle(coords,{
+            radius:40000,
+            color:"#33c2ff",
+            fillColor:"#33c2ff",
+            fillOpacity:0.2
+          }).addTo(map);
+
+          map.setView(coords, 6);
+          document.getElementById('statusText').innerText="Vehicle last seen at "+report.location+" (40km scan area)";
+        } catch(e){
+          document.getElementById('statusText').innerText="Error: "+e.message;
+        }
+      });
+      document.getElementById('messages').prepend(msg);
+    }
+
+    setInterval(()=>{
+      const report = sampleReports[Math.floor(Math.random()*sampleReports.length)];
+      addMessage(report);
+    },5000);
+
+    document.getElementById('sendReply').addEventListener('click', ()=> {
+      const msgText = document.getElementById('replyMessage').value.trim();
+      if(!currentReport || !msgText) return alert("Select a report and type a message.");
+      alert(`Message sent to ${currentReport.name}: "${msgText}"`);
+      document.getElementById('replyMessage').value='';
+    });
+  </script>
+
+</body>
+</html>
